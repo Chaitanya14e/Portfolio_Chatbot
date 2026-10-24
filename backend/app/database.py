@@ -6,11 +6,21 @@ from bson import ObjectId
 from dotenv import load_dotenv
 from pymongo import ASCENDING, MongoClient
 from pymongo.database import Database
+from pymongo.errors import ServerSelectionTimeoutError
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_URI = os.getenv("MONGODB_URI", "").strip()
+IS_RENDER = os.getenv("RENDER", "").lower() == "true"
+if not MONGODB_URI:
+    if IS_RENDER:
+        raise RuntimeError(
+            "MONGODB_URI is not configured. Add your MongoDB connection string "
+            "to the Render service's Environment settings."
+        )
+    MONGODB_URI = "mongodb://localhost:27017"
+
 client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
 database_name = os.getenv("MONGODB_DATABASE")
 database: Database = (
@@ -21,7 +31,15 @@ database: Database = (
 
 
 def initialize_database() -> None:
-    client.admin.command("ping")
+    try:
+        client.admin.command("ping")
+    except ServerSelectionTimeoutError as exc:
+        raise RuntimeError(
+            "Could not connect to MongoDB. Verify MONGODB_URI in the Render "
+            "service's Environment settings and allow the service to connect "
+            "in MongoDB Atlas Network Access."
+        ) from exc
+
     database["projects"].create_index(
         [("profile_id", ASCENDING), ("github_url", ASCENDING)],
         unique=True,

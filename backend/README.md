@@ -26,6 +26,12 @@ database name may be included in the URI; alternatively, set
 `portfolio_chatbot`. Copy `.env.example` as a template, and keep credentials
 private.
 
+For Render deployments, add `MONGODB_URI` under the service's **Environment**
+settings; Render does not read your local `backend\.env`. Use the connection
+string from MongoDB Atlas, and make sure Atlas Network Access permits
+connections from the deployed service. Do not set the hosted URI to
+`localhost`: that points back to the Render container, not to Atlas.
+
 MongoDB creates collections as data is first written. On startup, the backend
 creates a unique per-profile GitHub URL index and a unique profile-fact key
 index. No SQL migration is needed.
