@@ -3,7 +3,7 @@ import re
 from typing import Literal
 from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 ProjectCategory = Literal[
     "Frontend projects",
@@ -60,9 +60,7 @@ class ProfileUpdate(BaseModel):
 
 
 class ProfileResponse(ProfileCreate):
-    id: int
-
-    model_config = ConfigDict(from_attributes=True)
+    id: str
 
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
@@ -109,8 +107,8 @@ class ProjectUpdate(BaseModel):
 
 
 class ProjectResponse(ProjectCreate):
-    id: int
-    profile_id: int
+    id: str
+    profile_id: str
     status: str
     evidence_source: str | None = None
     source_type: str = "manual"
@@ -120,7 +118,6 @@ class ProjectResponse(ProjectCreate):
     def normalize_missing_technologies(cls, value):
         return value or []
 
-    model_config = ConfigDict(from_attributes=True)
 
 
 class GitHubImportRequest(BaseModel):
@@ -183,12 +180,11 @@ class SkillUpdate(BaseModel):
 
 
 class SkillResponse(SkillCreate):
-    id: int
-    profile_id: int
+    id: str
+    profile_id: str
     status: str
     evidence_source: str | None = None
 
-    model_config = ConfigDict(from_attributes=True)
 
 
 class ExperienceCreate(BaseModel):
@@ -210,12 +206,11 @@ class ExperienceUpdate(BaseModel):
 
 
 class ExperienceResponse(ExperienceCreate):
-    id: int
-    profile_id: int
+    id: str
+    profile_id: str
     status: str
     evidence_source: str | None = None
 
-    model_config = ConfigDict(from_attributes=True)
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=1000)

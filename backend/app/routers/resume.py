@@ -2,7 +2,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, Depends
-from sqlalchemy.orm import Session
+from pymongo.database import Database
 
 from app.database import get_db
 from app.services.fact_extractor import extract_facts
@@ -91,7 +91,7 @@ def extract_from_folder():
 
 @router.post("/extract-facts-from-folder")
 def extract_facts_from_folder(
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
 ):
     try:
         # Step 1: Read the resume from the resumes folder.
@@ -107,7 +107,7 @@ def extract_facts_from_folder(
         # Step 2: Extract structured facts using Ollama.
         extracted = extract_facts(resume_text)
 
-        # Step 3: Save facts as unverified in MySQL.
+        # Step 3: Save facts as unverified in MongoDB.
         filename = resume.get("filename", "resume")
 
         saved = save_extracted_facts(
@@ -147,7 +147,6 @@ def extract_facts_from_folder(
         ) from exc
 
     except Exception as exc:
-        db.rollback()
         print(f"Resume fact extraction failed: {exc}")
         raise HTTPException(
             status_code=500,

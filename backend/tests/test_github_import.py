@@ -4,12 +4,11 @@ import unittest
 from unittest.mock import patch
 
 import httpx
+import mongomock
 from fastapi import HTTPException, Response
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from pymongo.errors import AutoReconnect
 
-from app.database import Base
-from app.models import Profile, Project
+from app.models import PROFILES, PROJECTS
 from app.routers import projects
 from app.schema import GitHubImportRequest, ProjectReviewRequest
 from app.services.github_service import (
@@ -46,17 +45,14 @@ def api_response(request):
 
 class GitHubImportTests(unittest.TestCase):
     def setUp(self):
-        engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(engine)
-        self.session_factory = sessionmaker(bind=engine)
-        self.db = self.session_factory()
-        self.profile = Profile(name="Chaitanya")
-        self.db.add(self.profile)
-        self.db.commit()
+        self.client = mongomock.MongoClient()
+        self.db = self.client.portfolio_chatbot
+        self.profile_id = self.db[PROFILES].insert_one(
+            {"name": "Chaitanya"}
+        ).inserted_id
 
     def tearDown(self):
-        self.db.close()
-        self.session_factory.kw["bind"].dispose()
+        self.client.close()
 
     def test_valid_repository_url_is_normalized(self):
         request = GitHubImportRequest(
@@ -160,7 +156,7 @@ class GitHubImportTests(unittest.TestCase):
         self.assertEqual(response.import_status, "imported")
         self.assertIsNone(response.role)
         self.assertIsNone(response.deployed_url)
-        self.assertEqual(self.db.query(Project).count(), 1)
+        self.assertEqual(self.db[PROJECTS].count_documents({}), 1)
 
         duplicate_response = Response()
         with patch.object(projects, "fetch_github_repository") as fetch:
@@ -172,16 +168,20 @@ class GitHubImportTests(unittest.TestCase):
         fetch.assert_not_called()
         self.assertEqual(duplicate.import_status, "already_exists")
         self.assertEqual(duplicate_response.status_code, 200)
-        self.assertEqual(self.db.query(Project).count(), 1)
+        self.assertEqual(self.db[PROJECTS].count_documents({}), 1)
 
-    def test_database_failure_rolls_back_import(self):
+    def test_database_failure_does_not_store_import(self):
         repository = fetch_github_repository(
             "https://github.com/example/project",
             transport=httpx.MockTransport(api_response),
         )
         with (
             patch.object(projects, "fetch_github_repository", return_value=repository),
-            patch.object(self.db, "commit", side_effect=RuntimeError("db failure")),
+            patch.object(
+                self.db[PROJECTS],
+                "insert_one",
+                side_effect=AutoReconnect("db failure"),
+            ),
         ):
             with self.assertRaises(HTTPException) as error:
                 projects.import_github_project(
@@ -190,18 +190,16 @@ class GitHubImportTests(unittest.TestCase):
                     self.db,
                 )
         self.assertEqual(error.exception.status_code, 500)
-        self.assertEqual(self.db.query(Project).count(), 0)
+        self.assertEqual(self.db[PROJECTS].count_documents({}), 0)
 
     def test_project_review_requires_token_and_can_approve_with_verified_demo(self):
-        project = Project(
-            profile_id=self.profile.id,
-            name="Imported repository",
-            github_url="https://github.com/example/project",
-            source_type="github",
-            status="pending_review",
-        )
-        self.db.add(project)
-        self.db.commit()
+        project_id = self.db[PROJECTS].insert_one({
+            "profile_id": str(self.profile_id),
+            "name": "Imported repository",
+            "github_url": "https://github.com/example/project",
+            "source_type": "github",
+            "status": "pending_review",
+        }).inserted_id
 
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaises(HTTPException) as disabled:
@@ -215,7 +213,7 @@ class GitHubImportTests(unittest.TestCase):
         self.assertEqual(unauthorized.exception.status_code, 401)
 
         approved = projects.review_project(
-            project.id,
+            str(project_id),
             ProjectReviewRequest(
                 status="verified",
                 deployed_url="https://demo.example",
@@ -223,8 +221,8 @@ class GitHubImportTests(unittest.TestCase):
             ),
             self.db,
         )
-        self.assertEqual(approved.status, "verified")
-        self.assertEqual(approved.deployed_url, "https://demo.example")
+        self.assertEqual(approved["status"], "verified")
+        self.assertEqual(approved["deployed_url"], "https://demo.example")
 
     def test_category_classifier_uses_project_metadata(self):
         self.assertEqual(classify_project("React and HTML web interface"), "Frontend projects")

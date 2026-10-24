@@ -1,14 +1,12 @@
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from pymongo import DESCENDING
+from pymongo.database import Database
 
-from app.database import get_db
-from app.models import Profile, Experience
-from app.schema import (
-    ExperienceCreate,
-    ExperienceUpdate,
-    ExperienceResponse,
-)
+from app.database import get_db, parse_object_id, serialize_document
+from app.models import EXPERIENCES, PROFILES
+from app.schema import ExperienceCreate, ExperienceResponse, ExperienceUpdate
 
 router = APIRouter(
     prefix="/api/experiences",
@@ -16,15 +14,13 @@ router = APIRouter(
 )
 
 
-def get_default_profile(db: Session) -> Profile:
-    profile = db.query(Profile).order_by(Profile.id).first()
-
+def get_default_profile(db: Database) -> dict:
+    profile = db[PROFILES].find_one(sort=[("_id", 1)])
     if not profile:
         raise HTTPException(
             status_code=404,
             detail="Create a profile before adding experience.",
         )
-
     return profile
 
 
@@ -35,93 +31,71 @@ def get_default_profile(db: Session) -> Profile:
 )
 def create_experience(
     data: ExperienceCreate,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
 ):
     profile = get_default_profile(db)
-
     organization = data.organization.strip()
     role = data.role.strip()
-
     if not organization or not role:
         raise HTTPException(
             status_code=422,
             detail="Organization and role cannot be empty.",
         )
 
-    experience = Experience(
-        profile_id=profile.id,
-        organization=organization,
-        role=role,
-        description=data.description,
-        start_date=data.start_date,
-        end_date=data.end_date,
-        is_current=1 if data.is_current else 0,
-        status="pending_review",
+    document = data.model_dump()
+    document.update({
+        "profile_id": str(profile["_id"]),
+        "organization": organization,
+        "role": role,
+        "status": "pending_review",
+        "created_at": datetime.now(timezone.utc),
+    })
+    result = db[EXPERIENCES].insert_one(document)
+    return serialize_document(
+        db[EXPERIENCES].find_one({"_id": result.inserted_id})
     )
-
-    db.add(experience)
-    db.commit()
-    db.refresh(experience)
-
-    return experience
 
 
 @router.get("", response_model=list[ExperienceResponse])
-def get_experiences(db: Session = Depends(get_db)):
+def get_experiences(db: Database = Depends(get_db)):
     profile = get_default_profile(db)
-
-    return (
-        db.query(Experience)
-        .filter(Experience.profile_id == profile.id)
-        .order_by(Experience.id.desc())
-        .all()
-    )
+    return [
+        serialize_document(experience)
+        for experience in db[EXPERIENCES]
+        .find({"profile_id": str(profile["_id"])})
+        .sort("_id", DESCENDING)
+    ]
 
 
 @router.get("/{experience_id}", response_model=ExperienceResponse)
-def get_experience(
-    experience_id: int,
-    db: Session = Depends(get_db),
-):
+def get_experience(experience_id: str, db: Database = Depends(get_db)):
     profile = get_default_profile(db)
-
+    object_id = parse_object_id(experience_id)
     experience = (
-        db.query(Experience)
-        .filter(
-            Experience.id == experience_id,
-            Experience.profile_id == profile.id,
-        )
-        .first()
+        db[EXPERIENCES].find_one({
+            "_id": object_id,
+            "profile_id": str(profile["_id"]),
+        })
+        if object_id
+        else None
     )
-
     if not experience:
         raise HTTPException(status_code=404, detail="Experience not found")
-
-    return experience
+    return serialize_document(experience)
 
 
 @router.patch("/{experience_id}", response_model=ExperienceResponse)
 def update_experience(
-    experience_id: int,
+    experience_id: str,
     data: ExperienceUpdate,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
 ):
     profile = get_default_profile(db)
-
-    experience = (
-        db.query(Experience)
-        .filter(
-            Experience.id == experience_id,
-            Experience.profile_id == profile.id,
-        )
-        .first()
-    )
-
-    if not experience:
+    object_id = parse_object_id(experience_id)
+    if object_id is None:
         raise HTTPException(status_code=404, detail="Experience not found")
 
     updates = data.model_dump(exclude_unset=True)
-
     for field in ("organization", "role"):
         if field in updates and updates[field] is not None:
             updates[field] = updates[field].strip()
@@ -131,41 +105,36 @@ def update_experience(
                     detail=f"{field} cannot be empty.",
                 )
 
-    if "is_current" in updates and updates["is_current"] is not None:
-        updates["is_current"] = 1 if updates["is_current"] else 0
-
     if updates:
-        for field, value in updates.items():
-            setattr(experience, field, value)
-
-        experience.status = "pending_review"
-
-    db.commit()
-    db.refresh(experience)
-
-    return experience
-
-
-@router.delete("/{experience_id}")
-def delete_experience(
-    experience_id: int,
-    db: Session = Depends(get_db),
-):
-    profile = get_default_profile(db)
-
-    experience = (
-        db.query(Experience)
-        .filter(
-            Experience.id == experience_id,
-            Experience.profile_id == profile.id,
+        updates["status"] = "pending_review"
+        experience = db[EXPERIENCES].find_one_and_update(
+            {"_id": object_id, "profile_id": str(profile["_id"])},
+            {"$set": updates},
+            return_document=True,
         )
-        .first()
-    )
+    else:
+        experience = db[EXPERIENCES].find_one({
+            "_id": object_id,
+            "profile_id": str(profile["_id"]),
+        })
 
     if not experience:
         raise HTTPException(status_code=404, detail="Experience not found")
+    return serialize_document(experience)
 
-    db.delete(experience)
-    db.commit()
 
+@router.delete("/{experience_id}")
+def delete_experience(experience_id: str, db: Database = Depends(get_db)):
+    profile = get_default_profile(db)
+    object_id = parse_object_id(experience_id)
+    result = (
+        db[EXPERIENCES].delete_one({
+            "_id": object_id,
+            "profile_id": str(profile["_id"]),
+        })
+        if object_id
+        else None
+    )
+    if not result or not result.deleted_count:
+        raise HTTPException(status_code=404, detail="Experience not found")
     return {"message": "Experience deleted successfully"}

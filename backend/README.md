@@ -13,24 +13,22 @@ dependencies after updating `requirements.txt`:
 # GitHub projects
 
 The chatbot can include public GitHub repositories alongside resume projects.
-Imported repositories are saved to the existing `projects` table with
+Imported repositories are saved to the `projects` MongoDB collection with
 `source_type = github` and `status = pending_review`. Pending and rejected
 projects are never included in chatbot context. Review imported details and
 deployment links before approving a project.
 
-## Database migration
+## MongoDB configuration
 
-Apply the migration once to the existing MySQL database before starting the
-updated application. `Base.metadata.create_all()` does not add columns to an
-existing table.
+Set `MONGODB_URI` in `backend\.env` to your MongoDB connection string. The
+database name may be included in the URI; alternatively, set
+`MONGODB_DATABASE`. If neither specifies a database, the backend uses
+`portfolio_chatbot`. Copy `.env.example` as a template, and keep credentials
+private.
 
-```powershell
-Get-Content migrations\001_add_github_project_fields.sql | mysql -u <db-user> -p portfolio_chatbot
-```
-
-The migration adds GitHub URL, deployed URL, source type, and category fields
-plus a per-profile repository URL uniqueness index. Existing records are marked
-as manually added.
+MongoDB creates collections as data is first written. On startup, the backend
+creates a unique per-profile GitHub URL index and a unique profile-fact key
+index. No SQL migration is needed.
 
 ## Import a repository
 
@@ -52,7 +50,7 @@ The importer uses GitHub's public REST API, reads metadata and a bounded README
 summary, and never downloads or executes repository code. No deployment URL is
 inferred from repository metadata.
 
-The response includes the project's database ID and `import_status` (`imported`
+The response includes the project's MongoDB ID as a string and `import_status` (`imported`
 or `already_exists`). New imports remain pending review. Invalid URLs return
 422, missing/private repositories return 404, and GitHub rate limiting returns
 429. The API does not return tokens or stack traces.

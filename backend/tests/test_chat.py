@@ -2,13 +2,11 @@ import unittest
 from unittest.mock import patch
 
 import fitz
+import mongomock
 from fastapi import Response
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from app.routers import chat
-from app.database import Base
-from app.models import Profile, ProfileFact, Project
+from app.models import PROFILE_FACTS, PROJECTS, PROFILES
 from app.schema import ChatRequest
 from app.services.resume_parser import extract_pdf_text
 
@@ -64,41 +62,33 @@ class ChatPromptTests(unittest.TestCase):
         self.assertIn("unrelated project", stale_context_prompt)
 
     def test_verified_projects_are_in_context_and_pending_projects_are_not(self):
-        engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(engine)
-        session_factory = sessionmaker(bind=engine)
-        with session_factory() as db:
-            profile = Profile(name="Chaitanya")
-            db.add(profile)
-            db.flush()
-            db.add_all([
-                Project(
-                    profile_id=profile.id,
-                    name="Reviewed AI project",
-                    description="Reviewed description",
-                    technologies=["Python"],
-                    category="AI projects",
-                    github_url="https://github.com/example/reviewed",
-                    status="verified",
-                    source_type="github",
-                ),
-                Project(
-                    profile_id=profile.id,
-                    name="Pending project",
-                    status="pending_review",
-                ),
-                ProfileFact(
-                    profile_id=profile.id,
-                    fact_key="verified_skill",
-                    fact_value="Python",
-                    status="verified",
-                ),
-            ])
-            db.commit()
+        db = mongomock.MongoClient().portfolio_chatbot
+        profile_id = str(db[PROFILES].insert_one({"name": "Chaitanya"}).inserted_id)
+        db[PROJECTS].insert_many([
+            {
+                "profile_id": profile_id,
+                "name": "Reviewed AI project",
+                "description": "Reviewed description",
+                "technologies": ["Python"],
+                "category": "AI projects",
+                "github_url": "https://github.com/example/reviewed",
+                "status": "verified",
+                "source_type": "github",
+            },
+            {
+                "profile_id": profile_id,
+                "name": "Pending project",
+                "status": "pending_review",
+            },
+        ])
+        db[PROFILE_FACTS].insert_one({
+            "profile_id": profile_id,
+            "fact_key": "verified_skill",
+            "fact_value": "Python",
+            "status": "verified",
+        })
 
-            context = chat.build_verified_context(db)
-
-        engine.dispose()
+        context = chat.build_verified_context(db)
         self.assertIn("Reviewed AI project", context)
         self.assertIn("verified_skill: Python", context)
         self.assertIn("https://github.com/example/reviewed", context)

@@ -1,10 +1,11 @@
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from pymongo.database import Database
 
-from app.database import get_db
-from app.models import Profile
-from app.schema import ProfileCreate, ProfileResponse
+from app.database import get_db, parse_object_id, serialize_document
+from app.models import PROFILES
+from app.schema import ProfileCreate, ProfileResponse, ProfileUpdate
 
 router = APIRouter(
     prefix="/api/profile",
@@ -19,70 +20,58 @@ router = APIRouter(
 )
 def create_profile(
     profile_data: ProfileCreate,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
 ):
-    # This initial version supports one portfolio profile.
-    existing_profile = db.query(Profile).first()
-
-    if existing_profile:
+    profiles = db[PROFILES]
+    if profiles.find_one({}, {"_id": 1}):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A profile already exists. Update the existing profile.",
         )
 
-    profile = Profile(
-        name=profile_data.name,
-        headline=profile_data.headline,
-        summary=profile_data.summary,
-    )
-
-    db.add(profile)
-    db.commit()
-    db.refresh(profile)
-
-    return profile
+    now = datetime.now(timezone.utc)
+    document = profile_data.model_dump()
+    document.update({"created_at": now, "updated_at": now})
+    result = profiles.insert_one(document)
+    return serialize_document(profiles.find_one({"_id": result.inserted_id}))
 
 
 @router.get("/{profile_id}", response_model=ProfileResponse)
 def get_profile(
-    profile_id: int,
-    db: Session = Depends(get_db),
+    profile_id: str,
+    db: Database = Depends(get_db),
 ):
-    profile = db.query(Profile).filter(
-        Profile.id == profile_id
-    ).first()
-
+    object_id = parse_object_id(profile_id)
+    profile = db[PROFILES].find_one({"_id": object_id}) if object_id else None
     if not profile:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Profile not found",
         )
-
-    return profile
+    return serialize_document(profile)
 
 
 @router.patch("/{profile_id}", response_model=ProfileResponse)
 def update_profile(
-    profile_id: int,
-    profile_data: ProfileCreate,
-    db: Session = Depends(get_db),
+    profile_id: str,
+    profile_data: ProfileUpdate,
+    db: Database = Depends(get_db),
 ):
-    profile = db.query(Profile).filter(
-        Profile.id == profile_id
-    ).first()
-
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Profile not found",
-        )
+    object_id = parse_object_id(profile_id)
+    if object_id is None:
+        raise HTTPException(status_code=404, detail="Profile not found")
 
     updates = profile_data.model_dump(exclude_unset=True)
+    if updates:
+        updates["updated_at"] = datetime.now(timezone.utc)
+        profile = db[PROFILES].find_one_and_update(
+            {"_id": object_id},
+            {"$set": updates},
+            return_document=True,
+        )
+    else:
+        profile = db[PROFILES].find_one({"_id": object_id})
 
-    for field, value in updates.items():
-        setattr(profile, field, value)
-
-    db.commit()
-    db.refresh(profile)
-
-    return profile
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return serialize_document(profile)

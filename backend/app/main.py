@@ -1,10 +1,11 @@
 from contextlib import asynccontextmanager
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
-from app import models
+from pymongo.errors import PyMongoError
+
+from app.database import database, initialize_database
 from app.routers import profile
 from app.routers import projects
 from app.routers import skills
@@ -14,7 +15,7 @@ from app.routers import chat
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    initialize_database()
     yield
 
 
@@ -64,16 +65,13 @@ def health_check():
 @app.get("/db-health")
 def database_health_check():
     try:
-        with engine.connect() as connection:
-            connection.execute(text("SELECT 1"))
-
+        database.command("ping")
         return {
             "status": "connected",
-            "database": "portfolio_chatbot",
+            "database": database.name,
         }
-
-    except SQLAlchemyError:
+    except PyMongoError as exc:
         raise HTTPException(
             status_code=503,
-            detail="Database connection failed. Check MySQL and configuration.",
-        )
+            detail="Database connection failed. Check MongoDB and configuration.",
+        ) from exc

@@ -1,10 +1,11 @@
 
 import json
 import re
+from datetime import datetime, timezone
 
-from sqlalchemy.orm import Session
+from pymongo.database import Database
 
-from app.models import Profile, ProfileFact
+from app.models import PROFILE_FACTS, PROFILES
 
 
 def make_fact_key(value: str) -> str:
@@ -14,7 +15,7 @@ def make_fact_key(value: str) -> str:
 
 
 def save_extracted_facts(
-    db: Session,
+    db: Database,
     extracted: dict,
     evidence_source: str,
 ) -> dict:
@@ -23,7 +24,7 @@ def save_extracted_facts(
     New or updated facts remain unverified until reviewed.
     """
 
-    profile = db.query(Profile).order_by(Profile.id).first()
+    profile = db[PROFILES].find_one(sort=[("_id", 1)])
 
     if profile is None:
         raise ValueError(
@@ -136,45 +137,37 @@ def save_extracted_facts(
 
     inserted = 0
     updated = 0
-
-    try:
-        for candidate in candidates:
-            existing = (
-                db.query(ProfileFact)
-                .filter(
-                    ProfileFact.profile_id == profile.id,
-                    ProfileFact.fact_key == candidate["fact_key"],
-                )
-                .first()
-            )
-
-            if existing:
-                existing.fact_value = candidate["fact_value"]
-                existing.evidence_source = evidence_source
-                existing.notes = candidate["notes"]
-                existing.status = "unverified"
-                updated += 1
-            else:
-                db.add(
-                    ProfileFact(
-                        profile_id=profile.id,
-                        fact_key=candidate["fact_key"],
-                        fact_value=candidate["fact_value"],
-                        status="unverified",
-                        evidence_source=evidence_source,
-                        notes=candidate["notes"],
-                    )
-                )
-                inserted += 1
-
-        db.commit()
-
-    except Exception:
-        db.rollback()
-        raise
+    facts = db[PROFILE_FACTS]
+    profile_id = str(profile["_id"])
+    for candidate in candidates:
+        result = facts.update_one(
+            {
+                "profile_id": profile_id,
+                "fact_key": candidate["fact_key"],
+            },
+            {
+                "$set": {
+                    "fact_value": candidate["fact_value"],
+                    "evidence_source": evidence_source,
+                    "notes": candidate["notes"],
+                    "status": "unverified",
+                    "updated_at": datetime.now(timezone.utc),
+                },
+                "$setOnInsert": {
+                    "profile_id": profile_id,
+                    "fact_key": candidate["fact_key"],
+                    "created_at": datetime.now(timezone.utc),
+                },
+            },
+            upsert=True,
+        )
+        if result.upserted_id:
+            inserted += 1
+        else:
+            updated += 1
 
     return {
-        "profile_id": profile.id,
+        "profile_id": profile_id,
         "inserted": inserted,
         "updated": updated,
         "total_processed": len(candidates),

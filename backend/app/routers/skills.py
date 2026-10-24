@@ -1,10 +1,12 @@
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from pymongo import DESCENDING
+from pymongo.database import Database
 
-from app.database import get_db
-from app.models import Profile, Skill
-from app.schema import SkillCreate, SkillUpdate, SkillResponse
+from app.database import get_db, parse_object_id, serialize_document
+from app.models import PROFILES, SKILLS
+from app.schema import SkillCreate, SkillResponse, SkillUpdate
 
 router = APIRouter(
     prefix="/api/skills",
@@ -12,15 +14,13 @@ router = APIRouter(
 )
 
 
-def get_default_profile(db: Session) -> Profile:
-    profile = db.query(Profile).order_by(Profile.id).first()
-
+def get_default_profile(db: Database) -> dict:
+    profile = db[PROFILES].find_one(sort=[("_id", 1)])
     if not profile:
         raise HTTPException(
             status_code=404,
             detail="Create a profile before adding skills.",
         )
-
     return profile
 
 
@@ -31,90 +31,66 @@ def get_default_profile(db: Session) -> Profile:
 )
 def create_skill(
     skill_data: SkillCreate,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
 ):
     profile = get_default_profile(db)
+    skill_name = skill_data.skill_name.strip()
+    if not skill_name:
+        raise HTTPException(status_code=422, detail="Skill name cannot be empty.")
 
-    skill = Skill(
-        profile_id=profile.id,
-        skill_name=skill_data.skill_name.strip(),
-        category=skill_data.category,
-        proficiency=skill_data.proficiency,
-        status="pending_review",
-    )
-
-    if not skill.skill_name:
-        raise HTTPException(
-            status_code=422,
-            detail="Skill name cannot be empty.",
-        )
-
-    db.add(skill)
-    db.commit()
-    db.refresh(skill)
-
-    return skill
+    document = skill_data.model_dump()
+    document.update({
+        "profile_id": str(profile["_id"]),
+        "skill_name": skill_name,
+        "status": "pending_review",
+        "created_at": datetime.now(timezone.utc),
+    })
+    result = db[SKILLS].insert_one(document)
+    return serialize_document(db[SKILLS].find_one({"_id": result.inserted_id}))
 
 
 @router.get("", response_model=list[SkillResponse])
-def get_skills(db: Session = Depends(get_db)):
+def get_skills(db: Database = Depends(get_db)):
     profile = get_default_profile(db)
-
-    return (
-        db.query(Skill)
-        .filter(Skill.profile_id == profile.id)
-        .order_by(Skill.id.desc())
-        .all()
-    )
+    return [
+        serialize_document(skill)
+        for skill in db[SKILLS].find({"profile_id": str(profile["_id"])}).sort(
+            "_id", DESCENDING
+        )
+    ]
 
 
 @router.get("/{skill_id}", response_model=SkillResponse)
-def get_skill(
-    skill_id: int,
-    db: Session = Depends(get_db),
-):
+def get_skill(skill_id: str, db: Database = Depends(get_db)):
     profile = get_default_profile(db)
-
+    object_id = parse_object_id(skill_id)
     skill = (
-        db.query(Skill)
-        .filter(
-            Skill.id == skill_id,
-            Skill.profile_id == profile.id,
-        )
-        .first()
+        db[SKILLS].find_one({
+            "_id": object_id,
+            "profile_id": str(profile["_id"]),
+        })
+        if object_id
+        else None
     )
-
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
-
-    return skill
+    return serialize_document(skill)
 
 
 @router.patch("/{skill_id}", response_model=SkillResponse)
 def update_skill(
-    skill_id: int,
+    skill_id: str,
     skill_data: SkillUpdate,
-    db: Session = Depends(get_db),
+    db: Database = Depends(get_db),
 ):
     profile = get_default_profile(db)
-
-    skill = (
-        db.query(Skill)
-        .filter(
-            Skill.id == skill_id,
-            Skill.profile_id == profile.id,
-        )
-        .first()
-    )
-
-    if not skill:
+    object_id = parse_object_id(skill_id)
+    if object_id is None:
         raise HTTPException(status_code=404, detail="Skill not found")
 
     updates = skill_data.model_dump(exclude_unset=True)
-
     if updates.get("skill_name") is not None:
         updates["skill_name"] = updates["skill_name"].strip()
-
         if not updates["skill_name"]:
             raise HTTPException(
                 status_code=422,
@@ -122,38 +98,35 @@ def update_skill(
             )
 
     if updates:
-        for field, value in updates.items():
-            setattr(skill, field, value)
-
-        # Any change requires review again.
-        skill.status = "pending_review"
-
-    db.commit()
-    db.refresh(skill)
-
-    return skill
-
-
-@router.delete("/{skill_id}")
-def delete_skill(
-    skill_id: int,
-    db: Session = Depends(get_db),
-):
-    profile = get_default_profile(db)
-
-    skill = (
-        db.query(Skill)
-        .filter(
-            Skill.id == skill_id,
-            Skill.profile_id == profile.id,
+        updates["status"] = "pending_review"
+        skill = db[SKILLS].find_one_and_update(
+            {"_id": object_id, "profile_id": str(profile["_id"])},
+            {"$set": updates},
+            return_document=True,
         )
-        .first()
-    )
+    else:
+        skill = db[SKILLS].find_one({
+            "_id": object_id,
+            "profile_id": str(profile["_id"]),
+        })
 
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
+    return serialize_document(skill)
 
-    db.delete(skill)
-    db.commit()
 
+@router.delete("/{skill_id}")
+def delete_skill(skill_id: str, db: Database = Depends(get_db)):
+    profile = get_default_profile(db)
+    object_id = parse_object_id(skill_id)
+    result = (
+        db[SKILLS].delete_one({
+            "_id": object_id,
+            "profile_id": str(profile["_id"]),
+        })
+        if object_id
+        else None
+    )
+    if not result or not result.deleted_count:
+        raise HTTPException(status_code=404, detail="Skill not found")
     return {"message": "Skill deleted successfully"}
