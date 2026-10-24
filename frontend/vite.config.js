@@ -8,10 +8,13 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), tailwindcss()],
+    define: {
+      'import.meta.env.API_BASE_URL': JSON.stringify(env.BASE_URL || ''),
+    },
     server: {
       proxy: {
         '/api': {
-          target: env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
+          target: env.BACKEND_URL || 'http://127.0.0.1:8000',
           changeOrigin: true,
         },
       },

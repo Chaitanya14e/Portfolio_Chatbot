@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 const STORAGE_KEY = 'portfolio-chat-conversations'
 const API_BASE_URL = (
-  import.meta.env.VITE_API_BASE_URL || 'https://portfolio-chatbot-api-ngeh.onrender.com'
+  import.meta.env.API_BASE_URL || 'https://portfolio-chatbot-api-ngeh.onrender.com'
 ).replace(/\/$/, '')
 const suggestions = [
   { icon: 'user', label: 'Who are you?', prompt: 'Tell me about yourself.' },
