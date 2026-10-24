@@ -316,7 +316,7 @@ function App() {
     let streamedAnswer = ''
 
     try {
-      const response = await fetch(`${API_BASE_URL}/chat/stream`, {
+      const response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'text/plain' },
         body: JSON.stringify({ message }),
