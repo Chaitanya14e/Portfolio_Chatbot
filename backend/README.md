@@ -31,6 +31,9 @@ settings; Render does not read your local `backend\.env`. Use the connection
 string from MongoDB Atlas, and make sure Atlas Network Access permits
 connections from the deployed service. Do not set the hosted URI to
 `localhost`: that points back to the Render container, not to Atlas.
+Set `FRONTEND_ORIGINS` in Render to
+`https://portfolio-chatbot-assistant.vercel.app` if you have configured an
+override there; it is included in the application's default allowed origins.
 
 MongoDB creates collections as data is first written. On startup, the backend
 creates a unique per-profile GitHub URL index and a unique profile-fact key
