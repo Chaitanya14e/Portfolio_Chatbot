@@ -38,6 +38,18 @@ class ChatPromptTests(unittest.TestCase):
             "My name is Chaitanya Arora. I am a backend AI engineering enthusiast.",
         )
 
+    def test_personal_introduction_does_not_repeat_the_name(self):
+        answer = chat.ensure_intro_includes_name(
+            "My name is Chaitanya Arora. I am Chaitanya Arora. I study computer science.",
+            "Tell me about yourself",
+            self.resume,
+        )
+
+        self.assertEqual(
+            answer,
+            "My name is Chaitanya Arora. I study computer science.",
+        )
+
     def test_prompt_keeps_unknown_facts_unconfirmed_and_uses_project_cards(self):
         prompt = chat.build_chat_prompt(
             "Tell me projects",
@@ -238,6 +250,23 @@ class ChatPromptTests(unittest.TestCase):
             ))
 
         self.assertTrue(answer.startswith("My name is Chaitanya Arora."))
+        self.assertIn("I study computer science.", answer)
+
+    def test_stream_removes_model_repeating_the_resume_name(self):
+        chunks = iter([
+            "My name is Chaitanya ",
+            "Arora. I study computer science.",
+        ])
+        with (
+            patch.object(chat, "generate_response_stream", return_value=chunks),
+            patch.object(chat.time, "sleep"),
+        ):
+            answer = "".join(chat.stream_answer_words(
+                "prompt",
+                opening_line="My name is Chaitanya Arora.",
+            ))
+
+        self.assertEqual(answer.count("My name is Chaitanya Arora."), 1)
         self.assertIn("I study computer science.", answer)
 
     def test_stream_endpoint_disables_proxy_buffering(self):

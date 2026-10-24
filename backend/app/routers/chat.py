@@ -322,11 +322,36 @@ def ensure_intro_includes_name(answer: str, message: str, resume_text: str) -> s
         return answer
 
     answer = answer.strip()
-    first_sentence = re.split(r"(?<=[.!?])\s+", answer, maxsplit=1)[0]
-    if name.casefold() in first_sentence.casefold():
-        return answer
-
+    repeated_intro = re.compile(
+        rf"\b(?:my name is|i am)\s+{re.escape(name)}[.!]?\s*",
+        flags=re.IGNORECASE,
+    )
+    answer = repeated_intro.sub("", answer).strip()
     return f"My name is {name}." + (f" {answer}" if answer else "")
+
+
+def remove_repeated_name_intro(chunks, name: str):
+    sentence = ""
+    sentence_pattern = re.compile(r"(?<=[.!?])\s+")
+    repeated_intro = re.compile(
+        rf"\b(?:my name is|i am)\s+{re.escape(name)}[.!]?\s*",
+        flags=re.IGNORECASE,
+    )
+
+    for chunk in chunks:
+        sentence += chunk
+        match = sentence_pattern.search(sentence)
+        if match:
+            first_sentence = sentence[:match.start()]
+            yield repeated_intro.sub("", first_sentence)
+            remainder = sentence[match.end():]
+            if remainder:
+                yield remainder
+            yield from chunks
+            return
+
+    if sentence:
+        yield repeated_intro.sub("", sentence)
 
 
 def stream_answer_words(prompt: str, opening_line: str | None = None):
@@ -348,7 +373,12 @@ def stream_answer_words(prompt: str, opening_line: str | None = None):
         remaining = yield from emit_words(f"{opening_line} ")
         buffer += remaining
 
-    for chunk in generate_response_stream(prompt):
+    chunks = generate_response_stream(prompt)
+    if opening_line:
+        name = opening_line.removeprefix("My name is ").rstrip(".")
+        chunks = remove_repeated_name_intro(chunks, name)
+
+    for chunk in chunks:
         buffer += chunk
         buffer = yield from emit_words(buffer)
 
