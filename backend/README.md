@@ -1,10 +1,10 @@
-# Groq model configuration
+# Gemini model configuration
 
-The backend uses Groq for chatbot answers, streamed responses, and resume fact
-extraction. Copy `GROQ_API_KEY` and `GROQ_MODEL` from `.env.example` into the
-private `backend\.env` file, then add a newly rotated API key there. Never put
-the key in frontend environment variables or commit it. Install backend
-dependencies after updating `requirements.txt`:
+The backend uses Gemini for chatbot answers, streamed responses, and resume
+fact extraction. Set `GEMINI_API_KEY` in the private `backend\.env` file.
+`GEMINI_MODEL` defaults to `gemini-2.5-flash`. Never put the key in frontend
+environment variables or commit it. Install backend dependencies after
+updating `requirements.txt`:
 
 ```powershell
 .\venv\Scripts\python.exe -m pip install -r requirements.txt

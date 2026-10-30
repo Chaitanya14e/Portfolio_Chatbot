@@ -104,7 +104,7 @@ def extract_facts_from_folder(
                 detail="No readable text found in the resume.",
             )
 
-        # Step 2: Extract structured facts using Ollama.
+        # Step 2: Extract structured facts using Gemini.
         extracted = extract_facts(resume_text)
 
         # Step 3: Save facts as unverified in MongoDB.
