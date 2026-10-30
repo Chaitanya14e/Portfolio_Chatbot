@@ -1,8 +1,8 @@
-# Gemini model configuration
+# Groq model configuration
 
-The backend uses Gemini for chatbot answers, streamed responses, and resume
-fact extraction. Set `GEMINI_API_KEY` in the private `backend\.env` file.
-`GEMINI_MODEL` defaults to `gemini-3.8-flash`. Never put the key in frontend
+The backend uses Groq for chatbot answers, streamed responses, and resume fact
+extraction. Set `GROQ_API_KEY` in the private `backend\.env` file.
+`GROQ_MODEL` defaults to `openai/gpt-oss-120b`. Never put the key in frontend
 environment variables or commit it. Install backend dependencies after
 updating `requirements.txt`:
 
@@ -27,8 +27,8 @@ database name may be included in the URI; alternatively, set
 private.
 
 For Render deployments, add `MONGODB_URI` under the service's **Environment**
-settings; Render does not read your local `backend\.env`. Add `GEMINI_API_KEY`
-there as well, and optionally set `GEMINI_MODEL`. Use the connection string
+settings; Render does not read your local `backend\.env`. Add `GROQ_API_KEY`
+there as well, and optionally set `GROQ_MODEL`. Use the connection string
 from MongoDB Atlas, and make sure Atlas Network Access permits
 connections from the deployed service. Do not set the hosted URI to
 `localhost`: that points back to the Render container, not to Atlas.

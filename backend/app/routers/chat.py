@@ -11,7 +11,7 @@ from app.database import get_db
 from app.models import PROFILE_FACTS, PROJECTS
 from app.schema import ChatRequest, ChatResponse
 from app.services.resume_loader import load_resume_from_folder
-from app.services.gemini_service import (
+from app.services.groq_service import (
     get_client,
     generate_response,
     generate_response_stream,
@@ -418,10 +418,10 @@ def chat(
         answer = ensure_intro_includes_name(answer, request.message, resume_text)
         return ChatResponse(answer=answer)
     except Exception as exc:
-        print(f"Gemini error: {exc}")
+        logger.exception("Groq error")
         raise HTTPException(
             status_code=503,
-            detail="The Gemini model is unavailable. Please try again.",
+            detail="The Groq model is unavailable. Please try again.",
         ) from exc
 
 
@@ -444,7 +444,7 @@ def chat_stream(
     except RuntimeError as exc:
         raise HTTPException(
             status_code=503,
-            detail="Gemini is not configured. Set GEMINI_API_KEY on the backend.",
+            detail="Groq is not configured. Set GROQ_API_KEY on the backend.",
         ) from exc
 
     def generate():
@@ -452,7 +452,7 @@ def chat_stream(
             words = stream_answer_words(prompt, opening_line)
             yield from stream_project_cards(words, resume_text, verified_context)
         except Exception:
-            logger.exception("Error while streaming Gemini response")
+            logger.exception("Error while streaming Groq response")
             yield " The chatbot encountered an error. Please try again."
 
     return StreamingResponse(

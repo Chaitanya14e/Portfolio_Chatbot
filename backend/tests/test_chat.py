@@ -286,14 +286,14 @@ class ChatPromptTests(unittest.TestCase):
         self.assertIn("no-transform", response.headers["cache-control"])
         self.assertTrue(response.media_type.startswith("text/plain"))
 
-    def test_stream_endpoint_reports_missing_gemini_configuration(self):
+    def test_stream_endpoint_reports_missing_groq_configuration(self):
         with (
             patch.object(chat, "get_resume_context", return_value=""),
             patch.object(chat, "build_verified_context", return_value=""),
             patch.object(
                 chat,
                 "get_client",
-                side_effect=RuntimeError("GEMINI_API_KEY is missing"),
+                side_effect=RuntimeError("GROQ_API_KEY is missing"),
             ),
             self.assertRaises(HTTPException) as error,
         ):
@@ -303,11 +303,11 @@ class ChatPromptTests(unittest.TestCase):
             )
 
         self.assertEqual(error.exception.status_code, 503)
-        self.assertIn("GEMINI_API_KEY", error.exception.detail)
+        self.assertIn("GROQ_API_KEY", error.exception.detail)
 
     def test_stream_logs_provider_exception_details(self):
         def fail_stream(_prompt):
-            raise RuntimeError("Gemini quota exceeded")
+            raise RuntimeError("Groq quota exceeded")
 
         with (
             patch.object(chat, "get_resume_context", return_value=""),
@@ -327,7 +327,7 @@ class ChatPromptTests(unittest.TestCase):
             result = asyncio.run(collect_body())
 
         self.assertIn("chatbot encountered an error", result)
-        log_exception.assert_called_once_with("Error while streaming Gemini response")
+        log_exception.assert_called_once_with("Error while streaming Groq response")
 
 
 if __name__ == "__main__":

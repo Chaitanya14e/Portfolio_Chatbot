@@ -1,5 +1,5 @@
 
-from app.services.gemini_service import generate_completion
+from app.services.groq_service import generate_completion
 from app.schema import ResumeExtraction
 
 
