@@ -27,8 +27,9 @@ database name may be included in the URI; alternatively, set
 private.
 
 For Render deployments, add `MONGODB_URI` under the service's **Environment**
-settings; Render does not read your local `backend\.env`. Use the connection
-string from MongoDB Atlas, and make sure Atlas Network Access permits
+settings; Render does not read your local `backend\.env`. Add `GEMINI_API_KEY`
+there as well, and optionally set `GEMINI_MODEL`. Use the connection string
+from MongoDB Atlas, and make sure Atlas Network Access permits
 connections from the deployed service. Do not set the hosted URI to
 `localhost`: that points back to the Render container, not to Atlas.
 Set `FRONTEND_ORIGINS` in Render to

@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import time
 
@@ -11,11 +12,13 @@ from app.models import PROFILE_FACTS, PROJECTS
 from app.schema import ChatRequest, ChatResponse
 from app.services.resume_loader import load_resume_from_folder
 from app.services.gemini_service import (
+    get_client,
     generate_response,
     generate_response_stream,
 )
 
 router = APIRouter(prefix="/api/chat", tags=["Chat"])
+logger = logging.getLogger(__name__)
 
 
 def build_verified_context(db: Database) -> str:
@@ -436,13 +439,20 @@ def chat_stream(
         if resume_name and is_personal_intro(request.message)
         else None
     )
+    try:
+        get_client()
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini is not configured. Set GEMINI_API_KEY on the backend.",
+        ) from exc
 
     def generate():
         try:
             words = stream_answer_words(prompt, opening_line)
             yield from stream_project_cards(words, resume_text, verified_context)
         except Exception:
-            print("Error while streaming the Gemini response.")
+            logger.exception("Error while streaming Gemini response")
             yield " The chatbot encountered an error. Please try again."
 
     return StreamingResponse(

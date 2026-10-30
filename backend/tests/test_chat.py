@@ -1,9 +1,10 @@
+import asyncio
 import unittest
 from unittest.mock import patch
 
 import fitz
 import mongomock
-from fastapi import Response
+from fastapi import HTTPException, Response
 
 from app.routers import chat
 from app.models import PROFILE_FACTS, PROJECTS, PROFILES
@@ -122,6 +123,7 @@ class ChatPromptTests(unittest.TestCase):
         with (
             patch.object(chat, "get_resume_context", return_value=self.resume),
             patch.object(chat, "build_verified_context", return_value=context),
+            patch.object(chat, "get_client"),
         ):
             response = chat.chat_stream(
                 ChatRequest(message="Tell me projects"),
@@ -272,6 +274,7 @@ class ChatPromptTests(unittest.TestCase):
     def test_stream_endpoint_disables_proxy_buffering(self):
         with (
             patch.object(chat, "get_resume_context", return_value=""),
+            patch.object(chat, "get_client"),
         ):
             with patch.object(chat, "build_verified_context", return_value=""):
                 response = chat.chat_stream(
@@ -282,6 +285,49 @@ class ChatPromptTests(unittest.TestCase):
         self.assertEqual(response.headers["x-accel-buffering"], "no")
         self.assertIn("no-transform", response.headers["cache-control"])
         self.assertTrue(response.media_type.startswith("text/plain"))
+
+    def test_stream_endpoint_reports_missing_gemini_configuration(self):
+        with (
+            patch.object(chat, "get_resume_context", return_value=""),
+            patch.object(chat, "build_verified_context", return_value=""),
+            patch.object(
+                chat,
+                "get_client",
+                side_effect=RuntimeError("GEMINI_API_KEY is missing"),
+            ),
+            self.assertRaises(HTTPException) as error,
+        ):
+            chat.chat_stream(
+                ChatRequest(message="Tell me about your projects"),
+                db=None,
+            )
+
+        self.assertEqual(error.exception.status_code, 503)
+        self.assertIn("GEMINI_API_KEY", error.exception.detail)
+
+    def test_stream_logs_provider_exception_details(self):
+        def fail_stream(_prompt):
+            raise RuntimeError("Gemini quota exceeded")
+
+        with (
+            patch.object(chat, "get_resume_context", return_value=""),
+            patch.object(chat, "build_verified_context", return_value=""),
+            patch.object(chat, "get_client"),
+            patch.object(chat, "generate_response_stream", side_effect=fail_stream),
+            patch.object(chat.logger, "exception") as log_exception,
+        ):
+            response = chat.chat_stream(
+                ChatRequest(message="Tell me about your projects"),
+                db=None,
+            )
+
+            async def collect_body():
+                return "".join([chunk async for chunk in response.body_iterator])
+
+            result = asyncio.run(collect_body())
+
+        self.assertIn("chatbot encountered an error", result)
+        log_exception.assert_called_once_with("Error while streaming Gemini response")
 
 
 if __name__ == "__main__":
