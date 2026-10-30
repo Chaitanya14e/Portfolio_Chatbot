@@ -2,7 +2,7 @@
 
 The backend uses Gemini for chatbot answers, streamed responses, and resume
 fact extraction. Set `GEMINI_API_KEY` in the private `backend\.env` file.
-`GEMINI_MODEL` defaults to `gemini-2.5-flash`. Never put the key in frontend
+`GEMINI_MODEL` defaults to `gemini-3.8-flash`. Never put the key in frontend
 environment variables or commit it. Install backend dependencies after
 updating `requirements.txt`:
 
