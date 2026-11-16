@@ -455,7 +455,7 @@ def chat_stream(
         """
         try:
             # Stream the answer and project cards together using the existing helper
-            async for chunk in stream_project_cards(
+            for chunk in stream_project_cards(
                 stream_answer_words(prompt, opening_line),
                 resume_text,
                 verified_context,
