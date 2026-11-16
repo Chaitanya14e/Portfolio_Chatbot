@@ -447,10 +447,26 @@ def chat_stream(
             detail="Groq is not configured. Set GROQ_API_KEY on the backend.",
         ) from exc
 
-    def generate():
+    async def generate():
+        """Asynchronous generator that streams the answer chunk‑by‑chunk.
+        Using an async generator forces FastAPI to flush each yielded value
+        immediately, which dramatically reduces the perceived latency of the
+        streaming endpoint.
+        """
         try:
-            words = stream_answer_words(prompt, opening_line)
-            yield from stream_project_cards(words, resume_text, verified_context)
+            # Stream the answer and project cards together using the existing helper
+            async for chunk in stream_project_cards(
+                stream_answer_words(prompt, opening_line),
+                resume_text,
+                verified_context,
+            ):
+                yield chunk
+                await asyncio.sleep(0)
+
+        except GeneratorExit:
+            # Client disconnected – stop the Groq stream gracefully.
+            logger.info("Client disconnected from streaming endpoint")
+            return
         except Exception:
             logger.exception("Error while streaming Groq response")
             yield " The chatbot encountered an error. Please try again."

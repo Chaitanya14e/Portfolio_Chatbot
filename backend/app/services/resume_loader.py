@@ -22,12 +22,31 @@ def load_resume_from_folder() -> dict:
             "No PDF or DOCX resume found in the resumes folder."
         )
 
-    if len(files) > 1:
-        raise ValueError(
-            "Multiple resumes found. Keep only one resume in the folder."
-        )
-
-    resume_path = files[0]
+from pathlib import Path
++import os
+@@
+-    if len(files) > 1:
+-        raise ValueError(
+-            "Multiple resumes found. Keep only one resume in the folder."
+-        )
+-
+-    resume_path = files[0]
++    # Resolve which resume file to use
++    # 1️⃣ If ACTIVE_RESUME env var is set, use that exact filename.
++    active_name = os.getenv("ACTIVE_RESUME")
++    if active_name:
++        explicit = next((p for p in files if p.name == active_name), None)
++        if explicit:
++            resume_path = explicit
++        else:
++            raise FileNotFoundError(
++                f"ACTIVE_RESUME={active_name!r} but no such file exists in the resumes folder."
++            )
++    else:
++        # 2️⃣ Otherwise pick the most recently modified file.
++        resume_path = max(files, key=lambda p: p.stat().st_mtime)
+*** End Patch
+*** End Patch
     file_bytes = resume_path.read_bytes()
 
     if not file_bytes:
